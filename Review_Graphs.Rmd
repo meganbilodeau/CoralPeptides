@@ -1,0 +1,590 @@
+---
+title: "Review_Graphs"
+output: html_document
+date: "2025-04-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/Desktop/2025_Research/lit_review/methods")
+
+library(taxize)
+library(ape)
+library(ggtree)
+library(dplyr)
+library(tidyverse)
+library(phytools)
+library(readr)
+library(GO.db)
+library(purrr)
+library(tidyr)
+library(plotly)
+library(treemap)
+library(tibble)
+library(ggplot2)
+library(data.tree)
+library(UniprotR)
+library(ggh4x)
+library(ggtext)
+library(scales)
+```
+
+
+
+
+Load Data 
+```{r}
+data_full <- read_tsv("data/peptides_length.tsv")
+
+data_full <- data_full %>%
+  mutate(length_category = factor(length_category, levels = c("short", "medium", "long", "proteins", "large proteins")))
+```
+
+
+# Length Cateogorizes 
+
+Refined Data for Peptides and Length 
+```{r}
+data_peptides <- data_full %>%
+  mutate(length_category = factor(length_category, levels = c("short", "medium", "long", "proteins", "large proteins")))%>%
+  filter(length_category %in% c("short", "medium", "long"))%>%
+  mutate(coral = case_when(
+    order == "Scleractinia" ~ "Hard Coral",
+    order %in% c("Scleralcyonacea", "Malacalcyonacea") ~ "Soft Coral",
+    TRUE ~ NA_character_  # Optional: NA for other orders
+  ))
+
+length_data_peptides <- data_peptides %>%
+  select(-GOID, -ONTOLOGY, -GO_SLIM, -GO_Term, -ancestors)%>%
+  unique()
+```
+
+Graph of the number of peptides in each length category for Cnidarians 
+```{r}
+my_theme <- theme(
+  text = element_text(size = 14, face = "bold"),
+  axis.title = element_text(size = 14, face = "bold"),
+  axis.text = element_text(size = 14, face = "bold"),
+  legend.title = element_text(size = 14, face = "bold"),
+  legend.text = element_text(size = 14, face = "bold"),
+  strip.text = element_text(size = 14, face = "bold"),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(color = "black"),
+  axis.ticks.length = unit(0.2, "cm"),
+  axis.ticks = element_line(color = "black"),
+  panel.border = element_blank(),
+  plot.margin = margin(10, 10, 10, 10)
+)
+
+ggplot(length_data_peptides, aes(x = Length, fill = length_category)) +
+  geom_bar(color = "black") +
+  scale_y_continuous(expand = c(0, 0)) + 
+  my_theme +
+  scale_fill_discrete(
+    name = "Length Category",  # New legend title
+    labels = c("short" = "Small Peptide", "medium" = "Medium Peptide","long" = "Large Peptide"))+
+  labs(
+    x = "Length (amino acids)",
+    y = "Number of Peptides"
+  )
+
+```
+
+```{r}
+perc_theme <- theme(
+  text = element_text(size = 14, face = "bold"),
+  axis.title = element_text(size = 14, face = "bold"),
+  axis.text = element_text(size = 14, face = "bold"),
+  legend.title = element_text(size = 14, face = "bold"),
+  legend.text = element_text(size = 14, face = "bold"),
+  strip.text = element_text(size = 14, face = "bold"),
+  panel.background = element_rect(fill = "white"),
+  panel.grid.major = element_blank(),
+  panel.grid.minor = element_blank(),
+  axis.line = element_line(color = "black"),
+  axis.ticks.length = unit(0.2, "cm"),
+  axis.ticks = element_line(color = "black"),
+  panel.border = element_blank()
+)
+
+peptide_colors <- c(
+  "short" = "white", 
+  "medium" = "grey",  
+  "long" = "grey40"   
+)
+
+background_rects <- data.frame(
+  coral = c("Hard Coral", "Soft Coral"),
+  xmin = c(0.5, 1),
+  xmax = c(1, 1.5),
+  fill = "mediumpurple3"  # blue, green
+)
+
+#Family - Scleractinia
+length_percentage <- length_data_peptides %>%
+  group_by(phylum, length_category) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  group_by(phylum) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))
+
+ggplot(length_percentage, aes(x = phylum,y = percent, fill = length_category)) +
+  geom_rect(data = background_rects, 
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = NULL), 
+            inherit.aes = FALSE,
+            fill = background_rects$fill,
+            alpha = 0.7) +  # Adjust transparency
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(percent), "%")), 
+          position = position_stack(vjust = 0.5), size = 4)+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) + 
+  scale_fill_manual(values = peptide_colors) +
+  scale_fill_manual(
+    name = "Length Category",  # New legend title
+    labels = c("short" = "Small Peptide", "medium" = "Medium Peptide","long" = "Large Peptide"),
+    values = peptide_colors)+
+  labs(x = "Phylum", y = "Proportion of Total Peptides")+
+  perc_theme
+
+peptide_colors <- c(
+  "short" = "white", 
+  "medium" = "grey",  
+  "long" = "grey40"   
+)
+
+background_rects <- data.frame(
+  coral = c("Hard Coral", "Soft Coral"),
+  xmin = c(0.25, 1.5),
+  xmax = c(1.5, 2.75),
+  fill = c("deepskyblue3", "palegreen3")  # blue, green
+)
+
+length_counts <- length_data_peptides %>%
+  filter(!is.na(coral))%>%
+  group_by(coral, length_category) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop")
+
+ggplot(length_counts, aes(x = coral, y = n_proteins, fill = length_category)) +
+  geom_rect(data = background_rects, 
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = NULL), 
+            inherit.aes = FALSE,
+            fill = background_rects$fill,
+            alpha = 0.7) +  # Adjust transparency
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(n_proteins, 1))), 
+          position = position_stack(vjust = 0.5), size = 4)+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) + 
+  perc_theme +
+  scale_fill_manual(
+    name = "Length Category",  # New legend title
+    labels = c("short" = "Small Peptide", "medium" = "Medium Peptide","long" = "Large Peptide"),
+    values = peptide_colors)+
+  labs(y = "Number of Peptides", x = "Coral Type") 
+
+
+#Hard and Soft Coral Percentage for length 
+background_rects <- data.frame(
+  coral = c("Hard Coral", "Soft Coral"),
+  xmin = c(0.25, 1.5),
+  xmax = c(1.5, 2.75),
+  fill = c("deepskyblue3", "palegreen3")  # blue, green
+)
+
+length_percentage <- length_data_peptides %>%
+  filter(!is.na(coral))%>%
+  group_by(subclass, length_category) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  group_by(subclass) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))
+
+
+ggplot(length_percentage, aes(x = subclass, y = percent, fill = length_category)) +
+  geom_rect(data = background_rects, 
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = NULL), 
+            inherit.aes = FALSE,
+            fill = background_rects$fill,
+            alpha = 0.7) +  # Adjust transparency
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(percent), "%")), 
+          position = position_stack(vjust = 0.5), size = 4)+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) + 
+  scale_x_discrete(labels = c(
+  "Hexacorallia" = "Hard Coral",
+  "Octocorallia" = "Soft Coral"
+))+
+  scale_fill_manual(values = peptide_colors) +
+  scale_fill_manual(
+    name = "Length Category",  # New legend title
+    labels = c("short" = "Small Peptide", "medium" = "Medium Peptide","long" = "Large Peptide"),
+    values = peptide_colors)+
+  labs(x = NULL, y = "Proportion of Total Peptides")+
+  perc_theme
+```
+
+Graph of Length categorizes by percentages 
+
+Phylogeny Tree for reference, imputted into iTOL and then powerpoint was used to highlight specific subclasses 
+```{r}
+tree_data <- data_peptides %>%
+  filter(!is.na(phylum),!is.na(class), !is.na(subclass), !is.na(order))%>%
+  distinct(phylum, subclass, order) %>%
+  mutate(pathString = paste("Life", phylum, subclass, order, sep = "/"))
+
+taxonomy_tree <- as.Node(tree_data)
+
+phylo_tree <- as.phylo.Node(taxonomy_tree)
+
+write.tree(phylo_tree, file = "data/peptide_taxonomy_tree.newick")
+```
+
+# Length and Function Categories 
+
+Getting the protein family data from Uniprot 
+```{r}
+function_data_peptides <- length_data_peptides%>%
+  filter(length_category %in% c("short", "medium"))%>%
+  filter(coral %in% c("Hard Coral", "Soft Coral"))
+
+peptide_families <- read_tsv("data/uniprotkb_peptide_families.tsv")
+
+peptides_split <- peptide_families %>%
+  separate_rows(`Protein families`, sep = ",\\s*")
+
+length(unique(peptides_split$`Protein families`))
+
+#add these in later there are multiple entries for each peptide need to be more specified before going through this 
+
+function_peptides_families <- data_peptides%>%
+  filter(length_category %in% c("short", "medium"))%>%
+  mutate(coral = case_when(
+    order == "Scleractinia" ~ "Hard Coral",
+    order %in% c("Scleralcyonacea", "Malacalcyonacea") ~ "Soft Coral",
+    TRUE ~ NA_character_  # Optional: NA for other orders
+  ))%>%
+  filter(coral %in% c("Hard Coral", "Soft Coral"))
+
+########## Hard Coral Percentages by Function 
+background_rects <- data.frame(
+  coral = c("Hard Coral", "Soft Coral"),
+  xmin = c(0.5, 1),
+  xmax = c(1, 3.5),
+  fill = "palegreen3"  # blue, greenfill = c("deepskyblue3", "palegreen3")
+)
+
+# Preprocess peptide data
+length_percentage <- data_peptides %>%
+  filter(!is.na(coral))%>%
+  filter(subclass == "Octocorallia")%>%
+  filter(length_category %in% c("short", "medium"))%>%
+  group_by(subclass, length_category, ONTOLOGY) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  group_by(subclass, length_category) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))
+
+length_percentage$ONTOLOGY <- ifelse(
+  is.na(length_percentage$ONTOLOGY), 
+  "Unknown Function", 
+  length_percentage$ONTOLOGY
+)
+
+# Plot
+ggplot(length_percentage, aes(x = length_category, y = percent, fill = ONTOLOGY)) +
+  geom_rect(data = background_rects, 
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = NULL), 
+            inherit.aes = FALSE,
+            fill = background_rects$fill,
+            alpha = 0.7) +  # Adjust transparency
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(percent), "%")),
+            position = position_stack(vjust = 0.5), size = 4) +
+  perc_theme +
+  scale_fill_manual(
+    name = "Peptide Functional Pathway",
+    labels = c("BP" = "Biological Processes", 
+               "CC" = "Cellular Component", 
+               "MF" = "Molecular Function",
+               "Unknown Function" = "Unknown Function"),
+    values = c("pink", "salmon", "indianred3", "beige")
+  ) +
+  scale_y_continuous(breaks = pretty_breaks(n = 5), expand = c(0, 0)) +
+  labs(x = "Peptide Length Category", y = "Proportion of Total Peptides") 
+
+####### Soft Coral Percentages by Function 
+background_rects <- data.frame(
+  coral = c("Hard Coral", "Soft Coral"),
+  xmin = c(0.5, 1),
+  xmax = c(1, 3.5),
+  fill = "deepskyblue3" # blue, green
+)
+
+length_percentage <- data_peptides %>%
+  filter(!is.na(coral))%>%
+  filter(subclass == "Hexacorallia")%>%
+  filter(length_category %in% c("short", "medium"))%>%
+  group_by(subclass, length_category, ONTOLOGY) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  group_by(subclass, length_category) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))
+
+length_percentage$ONTOLOGY <- ifelse(
+  is.na(length_percentage$ONTOLOGY), 
+  "Unknown Function", 
+  length_percentage$ONTOLOGY
+)
+
+# Plot
+ggplot(length_percentage, aes(x = length_category, y = percent, fill = ONTOLOGY)) +
+  geom_rect(data = background_rects, 
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = NULL), 
+            inherit.aes = FALSE,
+            fill = background_rects$fill,
+            alpha = 0.7) +  # Adjust transparency
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(percent), "%")),
+            position = position_stack(vjust = 0.5), size = 4) +
+  perc_theme +
+  scale_fill_manual(
+    name = "Peptide Functional Pathway",
+    labels = c("BP" = "Biological Processes", 
+               "CC" = "Cellular Component", 
+               "MF" = "Molecular Function",
+               "Unknown Function" = "Unknown Function"),
+    values = c("pink", "salmon", "indianred3", "beige")
+  ) +
+  scale_y_continuous(breaks = pretty_breaks(n = 5), expand = c(0, 0)) +
+  labs(x = "Peptide Length Category", y = "Proportion of Total Peptides") 
+
+#### Cnidarians 
+
+background_rects <- data.frame(
+  coral = c("Hard Coral", "Soft Coral"),
+  xmin = c(0.5, 1),
+  xmax = c(1, 3.5),
+  fill = "mediumpurple3"  # blue, green
+)
+
+# Preprocess peptide data
+length_percentage <- data_full %>%
+  filter(length_category %in% c("short", "medium", "long"))%>%
+  group_by(phylum, length_category, ONTOLOGY) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  group_by(phylum, length_category) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))
+
+length_percentage$ONTOLOGY <- ifelse(
+  is.na(length_percentage$ONTOLOGY), 
+  "Unknown Function", 
+  length_percentage$ONTOLOGY
+)
+
+# Plot
+ggplot(length_percentage, aes(x = length_category, y = percent, fill = ONTOLOGY)) +
+  geom_rect(data = background_rects, 
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = NULL), 
+            inherit.aes = FALSE,
+            fill = background_rects$fill,
+            alpha = 0.7) +  # Adjust transparency
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(percent), "%")),
+            position = position_stack(vjust = 0.5), size = 4) +
+  perc_theme +
+  scale_fill_manual(
+    name = "Peptide Functional Pathway",
+    labels = c("BP" = "Biological Processes", 
+               "CC" = "Cellular Component", 
+               "MF" = "Molecular Function",
+               "Unknown Function" = "Unknown Function"),
+    values = c("pink", "salmon", "indianred3", "beige")
+  ) +
+  scale_y_continuous(breaks = pretty_breaks(n = 5), expand = c(0, 0)) +
+  labs(x = "Peptide Length Category", y = "Proportion of Total Peptides") 
+```
+
+```{r}
+
+
+fam_test <- left_join(length_data_peptides, peptides_split, by = "Entry")
+
+fam_test <- fam_test%>%
+  filter(length_category != "long")
+
+fam_test_counts <- fam_test %>%
+  filter(!is.na(coral))%>%
+  filter(!is.na(`Protein families`))%>%
+  group_by(coral, `Protein families`) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  group_by(coral) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))%>%
+  filter(n_proteins < 4)
+
+peptides_families <- left_join(fam_test_counts, fam_test, by = "Protein families")
+
+hard_family_counts <- fam_test %>%
+  filter(!is.na(coral))%>%
+  group_by(coral, `Protein families`) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop")
+
+ggplot(hard_family_counts, aes(x = `Protein families`, y = n_proteins)) +
+  geom_bar(stat = "identity", colour = "black", width = 0.75, fill = "deepskyblue3") +
+  perc_theme +
+  labs(x = "Protein Family", y = "Number of Peptides") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  geom_text(aes(label = n_proteins), 
+          vjust = -0.5, size = 4)
+
+coral_colors <- c(
+  "Hard Coral" = "deepskyblue3", 
+  "Soft Coral" = "palegreen3"   
+)
+
+family_counts <- fam_test %>%
+  filter(!is.na(coral))%>%
+  filter(!is.na(`Protein families`))%>%
+  group_by(coral, `Protein families`) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop")
+
+ordered_family_counts <- family_counts %>%
+  arrange(coral, desc(n_proteins)) %>%
+  group_by(coral) %>%
+  mutate(`Protein families` = factor(`Protein families`, levels = unique(`Protein families`))) %>%
+  ungroup()
+
+ggplot(ordered_family_counts, aes(x = `Protein families`, y = n_proteins, fill = coral)) +
+  geom_bar(stat = "identity", width = 0.75) +
+  geom_text(aes(label = n_proteins), 
+          vjust = -0.5, size = 4)+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), expand = c(0, 0)) + 
+  perc_theme +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))+
+  scale_fill_manual(
+    name = "Coral Type",  # New legend title
+    values = coral_colors)+
+  labs(y = "Number of Peptides", x = "Peptide Family") 
+
+
+family_na_summary <- fam_test %>%
+  mutate(family_status = ifelse(is.na(`Protein families`), "Unannotated", "Annotated")) %>%
+  filter(!is.na(coral)) %>%
+  group_by(coral, family_status) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop") %>%
+  mutate(group = paste(coral, family_status, sep = " - ")) %>%
+  group_by(coral) %>%
+  mutate(percent = round(n_proteins / sum(n_proteins) * 100, 2))
+
+
+ggplot(family_na_summary, aes(x = coral, y = percent, fill = group)) +
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(round(percent), "%")), 
+            position = position_stack(vjust = 0.5), size = 4) +
+  scale_fill_manual(
+    name = "Peptide Annotation",
+    values = c(
+      "Hard Coral - Annotated" = "deepskyblue3",
+      "Soft Coral - Annotated" = "palegreen3",
+      "Hard Coral - Unannotated" = "grey80",
+      "Soft Coral - Unannotated" = "grey80"
+    )
+  ) +
+  labs(x = "Coral Type", y = "Percentage of Peptides") +
+  perc_theme
+
+
+family_na_summary <- fam_test %>%
+  mutate(family_status = ifelse(is.na(`Protein families`), "Unannotated", "Annotated")) %>%
+  filter(!is.na(coral)) %>%
+  group_by(coral, family_status) %>%
+  summarise(n_proteins = n_distinct(Protein_ID), .groups = "drop")%>%
+  mutate(group = paste(coral, family_status, sep = " - ")) %>%
+  group_by(coral,family_status) %>%
+  mutate(n_proteins = sum(n_proteins))
+
+
+ggplot(family_na_summary, aes(x = coral, y = n_proteins, fill = group)) +
+  geom_bar(stat = "identity", colour = "black", width = 0.75) +
+  geom_text(aes(label = paste0(n_proteins)), 
+            position = position_stack(vjust = 0.5), size = 4) +
+  scale_fill_manual(
+    name = "Peptide Annotation",
+    values = c(
+      "Hard Coral - Annotated" = "deepskyblue3",
+      "Soft Coral - Annotated" = "palegreen3",
+      "Hard Coral - Unannotated" = "grey80",
+      "Soft Coral - Unannotated" = "grey80"
+    )
+  ) +
+  labs(x = "Coral Type", y = "Number of Peptides") +
+  perc_theme
+
+```
+
+
+Issue with the proteins families -> 
+
+Soft Corals have 3 protein subunits 
+
+Complex I subunit 4L family
+Cytochrome c oxidase subunit 3 family 
+Heme-copper respiratory oxidase family
+Cytochrome c oxidase subunit 2 family
+Cation-dependent O-methyltransferase family
+Class I-like SAM-binding methyltransferase superfamily
+Complexin/synaphin family
+NAC-beta family
+Zinc-containing alcohol dehydrogenase family
+
+Hard corals have 1 protein subunit 
+
+ATPase A chain family
+Eukaryotic ribosomal protein eL36 family 
+Eukaryotic ribosomal protein eL39 family
+GFP family
+TGF-beta family
+Trans-sulfuration enzymes family
+NA
+
+
+Now want to look at the references for the protein families - There are all the same proteins
+```{r}
+
+Hard_proteinnames <- fam_test%>%
+  filter(!is.na(coral))%>%
+  filter(coral == "Hard Coral")%>%
+  select(`Protein names`)%>%
+  unique()
+
+Soft_proteinnames <- fam_test%>%
+  filter(!is.na(coral))%>%
+  filter(coral == "Soft Coral")%>%
+  select(`Protein names`)%>%
+  unique()
+
+peptide_families_byname <- fam_test %>%
+  filter(!is.na(coral))%>%
+  select(`Protein names`, `Protein families`, coral)%>%
+  unique()
+  
+
+ATP <- subset(fam_test, `Protein families` == "ATPase A chain family")%>%
+  filter(!is.na(`PubMed ID`))
+
+TGFbeta_family <- subset(fam_test, `Protein families` == "TGF-beta family")%>%
+  filter(!is.na(`PubMed ID`))
+
+Complex_family <- subset(fam_test, `Protein families` == "Complex I subunit 4L family")%>%
+  filter(!is.na(`PubMed ID`))
+
+```
+
+
+```{r}
+study_byname <- peptide_families_byname %>%
+  filter(!is.na(`Protein families`))%>%
+  select(`Protein names`)
+
+study_bynamecitations <- left_join(study_byname, fam_test, by = "Protein names")
+
+citations_pepfam <- study_bynamecitations%>%
+  select(`Protein names`, `Protein families`, `DOI ID`, `PubMed ID`)%>%
+  unique()
+```
